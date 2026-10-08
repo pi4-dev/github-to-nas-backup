@@ -49,15 +49,18 @@ The live backup protects against losing GitHub data. Snapshots preserve older st
 ## Files
 
 ```text
-compose.yaml
-backup-loop.sh
-verify-backups.sh
-.env.example
-.gitignore
+compose.yaml          service definition
+backup-loop.sh        entrypoint: scheduling, markers, keepalive, verification
+verify-backups.sh     integrity verifier (also usable manually)
+.env.example          configuration template (copy to .env)
+secrets/              github_token goes here (git-ignored)
+.github/workflows/    ShellCheck + compose validation
 docs/
   RESTORE-TEST.md
   SNAPSHOT-STRATEGY.md
 ```
+
+Runtime state markers are written to `<BACKUP_HOST_PATH>/status/` on the NAS.
 
 ## Quick start
 
@@ -97,6 +100,29 @@ Follow logs:
 ```bash
 docker compose logs -f github-backup
 ```
+
+## Configuration reference
+
+All settings are environment variables set in `.env`. Times are in seconds.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GH_ACCOUNT` | required | GitHub user or organization |
+| `GH_ORGANIZATION` | `false` | `true` when the account is an organization |
+| `BACKUP_HOST_PATH` | required | Host path mounted as `/data` |
+| `BACKUP_IMAGE_TAG` | `latest` | Image tag; pin a release for reproducibility |
+| `INCLUDE_PRIVATE` / `INCLUDE_FORKS` | `true` | Include private repositories / forks |
+| `GH_EXTRA_ARGS` | empty | Extra flags passed to `github-backup` |
+| `BACKUP_INTERVAL` | `21600` (6 h) | Pause between runs |
+| `FULL_INTERVAL` | `604800` (7 d) | Age after which a non-incremental run is done |
+| `KEEPALIVE_URL`, `KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after a backup |
+| `VERIFY_INTERVAL` | `604800` (7 d) | Time between verifications; `0` = every backup |
+| `VERIFY_LFS` | `true` | Re-hash all LFS objects during verification |
+| `VERIFY_KEEPALIVE_URL`, `VERIFY_KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after verification |
+
+Interval values are validated at start-up; a non-numeric value stops the container with an error.
+
+The container handles `docker stop` gracefully: the running `github-backup` is terminated and the loop exits immediately.
 
 ## Optional success keepalive
 
@@ -177,6 +203,10 @@ A failed verification does **not** turn a successfully completed backup job into
 - `status/last-verify-success` is not updated;
 - the verification keepalive is not sent;
 - verification is retried after the next successful backup.
+
+Verification only runs after a successful backup. If backups keep failing, verification does not run either, so monitor `status/last-success` (or the backup keepalive) as well.
+
+Verification fails if no mirrors or no JSON metadata are found, so an empty or partial backup is never reported as valid. Set `VERIFY_LFS=false` to skip LFS hashing on very large stores (the weekly run reads every LFS object).
 
 ### Verification keepalive
 

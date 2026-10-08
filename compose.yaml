@@ -1,17 +1,25 @@
 services:
   github-backup:
-    image: ghcr.io/josegonzalez/python-github-backup:latest
+    # Pin to a release tag (or digest) for reproducible flags; bump deliberately.
+    # Tags: https://github.com/josegonzalez/python-github-backup/pkgs/container/python-github-backup
+    image: ghcr.io/josegonzalez/python-github-backup:${BACKUP_IMAGE_TAG:-latest}
     container_name: github-backup
     restart: unless-stopped
+    # Reap child processes and forward signals correctly.
+    init: true
 
     environment:
       GH_ACCOUNT: ${GH_ACCOUNT:?GH_ACCOUNT must be set}
       GH_ORGANIZATION: ${GH_ORGANIZATION:-false}
+      INCLUDE_PRIVATE: ${INCLUDE_PRIVATE:-true}
+      INCLUDE_FORKS: ${INCLUDE_FORKS:-true}
+      GH_EXTRA_ARGS: ${GH_EXTRA_ARGS:-}
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-21600}
       FULL_INTERVAL: ${FULL_INTERVAL:-604800}
       KEEPALIVE_URL: ${KEEPALIVE_URL:-}
       KEEPALIVE_TIMEOUT: ${KEEPALIVE_TIMEOUT:-10}
       VERIFY_INTERVAL: ${VERIFY_INTERVAL:-604800}
+      VERIFY_LFS: ${VERIFY_LFS:-true}
       VERIFY_KEEPALIVE_URL: ${VERIFY_KEEPALIVE_URL:-}
       VERIFY_KEEPALIVE_TIMEOUT: ${VERIFY_KEEPALIVE_TIMEOUT:-10}
       TZ: ${TZ:-UTC}

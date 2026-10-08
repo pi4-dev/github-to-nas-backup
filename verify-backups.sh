@@ -1,8 +1,18 @@
 #!/bin/sh
+# Integrity verification of a backup produced by backup-loop.sh.
+#
+# Checks, in order:
+#   1. git fsck --full for every mirror in $BACKUP_ROOT/repositories/*/repository
+#   2. every exported *.json file parses (and at least one exists)
+#   3. every Git LFS object matches the SHA-256 in its file name
+#      (skipped when VERIFY_LFS=false; hashing large stores takes a while)
+#
+# Exit status is non-zero if anything is missing or corrupt.
 
 set -eu
 
 BACKUP_ROOT="${BACKUP_ROOT:?Set BACKUP_ROOT to the backup data directory}"
+VERIFY_LFS="${VERIFY_LFS:-true}"
 
 found=0
 failures=0
@@ -10,19 +20,15 @@ failures=0
 echo "Starting repository integrity verification."
 
 for repo in "$BACKUP_ROOT"/repositories/*/repository; do
-    if [ ! -d "$repo" ]; then
-        continue
-    fi
-
+    [ -d "$repo" ] || continue
     found=1
 
     echo
     echo "=== Git fsck: $repo ==="
 
-    if git -c safe.directory="$repo" \
-        --git-dir="$repo" \
-        fsck --full
-    then
+    # safe.directory is set per repository because the backup is owned by a
+    # different user than the one running the check; avoids a global '*'.
+    if git -c safe.directory="$repo" --git-dir="$repo" fsck --full; then
         echo "PASS"
     else
         echo "FAIL" >&2
@@ -46,21 +52,33 @@ echo "All Git mirrors passed git fsck --full."
 echo
 echo "Validating JSON metadata and Git LFS object hashes."
 
-python - "$BACKUP_ROOT" <<'PY'
+python - "$BACKUP_ROOT" "$VERIFY_LFS" <<'PY'
 import hashlib
 import json
 import os
-import string
+import re
 import sys
 
-backup_root = sys.argv[1]
+backup_root, verify_lfs = sys.argv[1], sys.argv[2] == "true"
 json_checked = 0
 lfs_checked = 0
 errors = []
-hexchars = set(string.hexdigits.lower())
+
+# Layout written by git-lfs: <repo>/lfs/objects/<oid[0:2]>/<oid[2:4]>/<oid>
+LFS_DIR = re.compile(r"/lfs/objects/[0-9a-f]{2}/[0-9a-f]{2}$")
+OID = re.compile(r"[0-9a-f]{64}")
+
+
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 for directory, _, filenames in os.walk(backup_root):
-    normalized = directory.replace(os.sep, "/")
+    is_lfs = verify_lfs and LFS_DIR.search(directory.replace(os.sep, "/"))
 
     for filename in filenames:
         path = os.path.join(directory, filename)
@@ -73,29 +91,26 @@ for directory, _, filenames in os.walk(backup_root):
             except Exception as exc:
                 errors.append(f"Invalid JSON: {path}: {exc}")
 
-        if "/lfs/objects/" in normalized:
-            oid = filename.lower()
+        if is_lfs and OID.fullmatch(filename):
+            lfs_checked += 1
+            try:
+                actual = sha256_of(path)
+            except Exception as exc:
+                errors.append(f"Cannot read LFS object: {path}: {exc}")
+                continue
 
-            if len(oid) == 64 and all(char in hexchars for char in oid):
-                lfs_checked += 1
-                digest = hashlib.sha256()
-
-                try:
-                    with open(path, "rb") as handle:
-                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                            digest.update(chunk)
-                except Exception as exc:
-                    errors.append(f"Cannot read LFS object: {path}: {exc}")
-                    continue
-
-                if digest.hexdigest() != oid:
-                    errors.append(
-                        f"LFS SHA-256 mismatch: {path}: "
-                        f"expected {oid}, got {digest.hexdigest()}"
-                    )
+            if actual != filename:
+                errors.append(
+                    f"LFS SHA-256 mismatch: {path}: "
+                    f"expected {filename}, got {actual}"
+                )
 
 print(f"JSON files checked: {json_checked}")
-print(f"LFS objects checked: {lfs_checked}")
+print(f"LFS objects checked: {lfs_checked}" if verify_lfs else "LFS check skipped")
+
+# A backup without any exported metadata is incomplete, not "valid".
+if json_checked == 0:
+    errors.append(f"No JSON metadata files found under: {backup_root}")
 
 if errors:
     for error in errors:

@@ -1,0 +1,18 @@
+name: lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: shellcheck --shell=sh backup-loop.sh verify-backups.sh
+      - name: Validate compose file
+        run: |
+          cp .env.example .env
+          mkdir -p secrets && touch secrets/github_token
+          docker compose config --quiet

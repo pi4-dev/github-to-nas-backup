@@ -95,7 +95,12 @@ Also avoid recursively changing ownership of the live backup merely to make a re
 The strongest practical test disables networking completely:
 
 ```bash
-docker run --rm   --network none   -v "$REPOSITORY_BACKUP:/source:ro"   --entrypoint sh   ghcr.io/josegonzalez/python-github-backup:latest   -c '
+docker run --rm \
+  --network none \
+  -v "$REPOSITORY_BACKUP:/source:ro" \
+  --entrypoint sh \
+  ghcr.io/josegonzalez/python-github-backup:latest \
+  -c '
     set -e
     git config --global --add safe.directory /source
     git clone --no-hardlinks /source /tmp/restore
