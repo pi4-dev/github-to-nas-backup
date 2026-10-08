@@ -52,7 +52,8 @@ The live backup protects against losing GitHub data. Snapshots preserve older st
 compose.yaml          service definition
 backup-loop.sh        entrypoint: scheduling, markers, keepalive, verification
 verify-backups.sh     integrity verifier (also usable manually)
-.env.example          configuration template (copy to .env)
+.env.example          compose-level settings (copy to .env)
+app.env.example       application settings (copy to <COMPOSE_PROJECT_NAME>-app.env)
 secrets/              github_token goes here (git-ignored)
 .github/workflows/    ShellCheck + compose validation
 docs/
@@ -64,17 +65,23 @@ Runtime state markers are written to `<BACKUP_HOST_PATH>/status/` on the NAS.
 
 ## Quick start
 
-Copy the environment template:
+Copy the templates:
 
 ```bash
 cp .env.example .env
+cp app.env.example github-backup-app.env   # name: ${COMPOSE_PROJECT_NAME}-app.env
 ```
 
-Edit `.env` and provide:
+Edit `.env` (compose-level settings):
 
-- the GitHub user or organization
+- `COMPOSE_PROJECT_NAME` - selects the application file `${COMPOSE_PROJECT_NAME}-app.env`
+- `BACKUP_HOST_PATH` - absolute NAS path for backup data
+- optional `BACKUP_IMAGE_TAG`
+
+Edit `<COMPOSE_PROJECT_NAME>-app.env` (application settings):
+
+- the GitHub user or organization (`GH_ACCOUNT`)
 - whether the target is an organization (`GH_ORGANIZATION=true`)
-- an absolute NAS path for backup data
 - optional timezone and scheduling intervals
 
 Create the token secret:
@@ -103,14 +110,14 @@ docker compose logs -f github-backup
 
 ## Configuration reference
 
-All settings are environment variables set in `.env`. Times are in seconds.
+Application settings are environment variables in `<COMPOSE_PROJECT_NAME>-app.env` (loaded via `env_file`, values are literal - no `${VAR}` interpolation). `BACKUP_HOST_PATH` and `BACKUP_IMAGE_TAG` stay in `.env`. Times are in seconds.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GH_ACCOUNT` | required | GitHub user or organization |
 | `GH_ORGANIZATION` | `false` | `true` when the account is an organization |
-| `BACKUP_HOST_PATH` | required | Host path mounted as `/data` |
-| `BACKUP_IMAGE_TAG` | `latest` | Image tag; pin a release for reproducibility |
+| `BACKUP_HOST_PATH` (`.env`) | required | Host path mounted as `/data` |
+| `BACKUP_IMAGE_TAG` (`.env`) | `latest` | Image tag; pin a release for reproducibility |
 | `INCLUDE_PRIVATE` / `INCLUDE_FORKS` | `true` | Include private repositories / forks |
 | `GH_EXTRA_ARGS` | empty | Extra flags passed to `github-backup` |
 | `BACKUP_INTERVAL` | `21600` (6 h) | Pause between runs |
@@ -128,7 +135,7 @@ The container handles `docker stop` gracefully: the running `github-backup` is t
 
 An optional HTTP GET notification can be sent after a backup finishes successfully.
 
-Configure it in `.env`:
+Configure it in the app env file:
 
 ```dotenv
 KEEPALIVE_URL=https://example.invalid/your-monitoring-endpoint
