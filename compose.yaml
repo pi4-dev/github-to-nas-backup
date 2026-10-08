@@ -8,9 +8,10 @@ services:
     # Reap child processes and forward signals correctly.
     init: true
 
-    # Application settings live in <COMPOSE_PROJECT_NAME>-app.env (see app.env.example).
+    # Application settings live in <project name>-app.env (see app.env.example).
+    # Compose sets COMPOSE_PROJECT_NAME itself (directory name, or -p / .env override).
     env_file:
-      - ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be set in .env}-app.env
+      - ${COMPOSE_PROJECT_NAME}-app.env
 
     volumes:
       - ${BACKUP_HOST_PATH:?BACKUP_HOST_PATH must be set}:/data

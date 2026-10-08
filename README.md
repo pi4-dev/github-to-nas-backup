@@ -53,7 +53,7 @@ compose.yaml          service definition
 backup-loop.sh        entrypoint: scheduling, markers, keepalive, verification
 verify-backups.sh     integrity verifier (also usable manually)
 .env.example          compose-level settings (copy to .env)
-app.env.example       application settings (copy to <COMPOSE_PROJECT_NAME>-app.env)
+app.env.example       application settings (copy to <project name>-app.env)
 secrets/              github_token goes here (git-ignored)
 .github/workflows/    ShellCheck + compose validation
 docs/
@@ -69,16 +69,17 @@ Copy the templates:
 
 ```bash
 cp .env.example .env
-cp app.env.example github-backup-app.env   # name: ${COMPOSE_PROJECT_NAME}-app.env
+cp app.env.example github-to-nas-backup-app.env   # <project name>-app.env
 ```
 
 Edit `.env` (compose-level settings):
 
-- `COMPOSE_PROJECT_NAME` - selects the application file `${COMPOSE_PROJECT_NAME}-app.env`
 - `BACKUP_HOST_PATH` - absolute NAS path for backup data
 - optional `BACKUP_IMAGE_TAG`
 
-Edit `<COMPOSE_PROJECT_NAME>-app.env` (application settings):
+The application file is named `${COMPOSE_PROJECT_NAME}-app.env`. Docker Compose sets `COMPOSE_PROJECT_NAME` itself (the directory name, `-p`, or a value in `.env`), so for a checkout in `github-to-nas-backup/` the file is `github-to-nas-backup-app.env`.
+
+Edit `<project name>-app.env` (application settings):
 
 - the GitHub user or organization (`GH_ACCOUNT`)
 - whether the target is an organization (`GH_ORGANIZATION=true`)
@@ -110,7 +111,7 @@ docker compose logs -f github-backup
 
 ## Configuration reference
 
-Application settings are environment variables in `<COMPOSE_PROJECT_NAME>-app.env` (loaded via `env_file`, values are literal - no `${VAR}` interpolation). `BACKUP_HOST_PATH` and `BACKUP_IMAGE_TAG` stay in `.env`. Times are in seconds.
+Application settings are environment variables in `<project name>-app.env` (loaded via `env_file`, values are literal - no `${VAR}` interpolation). `BACKUP_HOST_PATH` and `BACKUP_IMAGE_TAG` stay in `.env`. Times are in seconds.
 
 | Variable | Default | Meaning |
 |---|---|---|

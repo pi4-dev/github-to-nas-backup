@@ -14,6 +14,6 @@ jobs:
       - name: Validate compose file
         run: |
           cp .env.example .env
-          cp app.env.example github-backup-app.env
+          cp app.env.example ci-app.env
           mkdir -p secrets && touch secrets/github_token
-          docker compose config --quiet
+          docker compose -p ci config --quiet
