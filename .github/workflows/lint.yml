@@ -61,6 +61,9 @@ jobs:
           docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --format json | jq -e '
             .services["github-to-nas-backup"] as $service |
             ($service.image == "ghcr.io/josegonzalez/python-github-backup:latest") and
+            ($service.logging.driver == "json-file") and
+            ($service.logging.options["max-size"] == "10m") and
+            ($service.logging.options["max-file"] == "5") and
             ($service.environment.GH_ACCOUNT == "your-github-user-or-organization") and
             (any($service.volumes[]; .target == "/data" and .source == "/absolute/path/to/backup/storage"))
           '

@@ -5,6 +5,12 @@ services:
     image: ghcr.io/josegonzalez/python-github-backup:${BACKUP_IMAGE_TAG:-latest}
     container_name: github-to-nas-backup
     restart: unless-stopped
+    # Bound container stdout/stderr log growth independently of daemon defaults.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     # Reap child processes and forward signals correctly.
     init: true
 

@@ -142,6 +142,19 @@ When upgrading from the previous Compose service name `github-backup`, remove th
 docker compose --env-file ./github-to-nas-backup.env up -d --remove-orphans
 ```
 
+## Container log rotation
+
+The service pins Docker's `json-file` logging driver and rotates container stdout/stderr logs with `max-size: "10m"` and `max-file: "5"` (approximately 50 MB of log files per container, excluding filesystem overhead). This prevents GitHub repository-by-repository progress output from growing without bound, regardless of the Docker daemon's default logging configuration. It does not rotate the actual backup data stored in `BACKUP_HOST_PATH`.
+
+After updating the Compose file on the NAS, recreate the container to apply its new logging configuration (this briefly stops the running backup):
+
+```bash
+docker compose --env-file ./github-to-nas-backup.env up -d --force-recreate
+docker inspect github-to-nas-backup --format '{{json .HostConfig.LogConfig}}'
+```
+
+The inspect output should show `json-file`, `max-size=10m` and `max-file=5`. Existing unbounded historical log files are not retroactively rotated; recreation replaces the old container and its logs.
+
 ## Configuration reference
 
 All settings live in `github-to-nas-backup.env`, loaded through service `env_file` and also passed with `--env-file` for Compose interpolation. Keep the GitHub token in `secrets/github_token`, not in the environment file. Times are in seconds.
