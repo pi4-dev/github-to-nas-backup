@@ -72,13 +72,16 @@ touch "$RUNNING"
 [ -e "$RUNNING" ] || fail "orphan was silently removed"
 
 # A failed marker write must fail closed before github-backup starts.
-if (
+# fail() inside the subshell would only exit the subshell (status 1, the same
+# as the expected outcome), so record the call in a sentinel file instead.
+rc=0
+(
     touch() { return 1; }
-    run_github_backup() { fail "backup ran without a usable activity marker"; }
+    run_github_backup() { : > "$tmp/backup-ran"; }
     run_backup full
-); then
-    fail "untracked backup was allowed to start"
-fi
+) || rc=$?
+[ "$rc" -ne 0 ] || fail "untracked backup was allowed to start"
+[ ! -e "$tmp/backup-ran" ] || fail "backup ran without a usable activity marker"
 
 # Reject an aligned interval of zero at startup before permissions checks.
 if output="$(env GH_ACCOUNT=ci ALIGN_SCHEDULE=true BACKUP_INTERVAL=0 sh ./backup-loop.sh 2>&1)"; then
