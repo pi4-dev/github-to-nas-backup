@@ -24,6 +24,14 @@ The default configuration includes:
 
 The upstream `--bare` option creates a real Git mirror using `git clone --mirror`.
 
+### Token type and private repository attachments
+
+`GH_TOKEN_TYPE=fine` (default) uses upstream `--token-fine`; `GH_TOKEN_TYPE=classic` uses upstream `--token`. Both options load the credential from the **same Docker secret** (`secrets/github_token`) via `file:///run/secrets/github_token`. The token value is not stored in the environment file or passed as a literal command-line argument. Replace the contents of the secret with a token of the matching type when switching.
+
+**Known upstream/GitHub limitation:** fine-grained personal access tokens cannot directly download user-uploaded attachments from **private repositories**. Upstream implements a GitHub Markdown API workaround for images, but **non-image attachments such as PDFs and text files return HTTP 404**. These may be missing from a backup even when other repository content is available. For comprehensive attachment coverage of private repositories, upstream recommends a **classic personal access token**. This choice is not a guarantee that every remote attachment will remain available; inspect attachment manifests and errors. Details: [upstream attachment documentation](https://github.com/josegonzalez/python-github-backup#about-attachments).
+
+Classic PATs generally require the broad `repo` scope to access private repositories and therefore carry greater risk than fine-grained PATs. Use the least privilege available for your requirements, restrict and rotate credentials, and authorize organization SSO where applicable. **Changing `GH_TOKEN_TYPE` does not convert the existing token**; configure a real token of the selected type in `secrets/github_token`.
+
 ## Protection model
 
 ```text
@@ -75,6 +83,7 @@ Edit `github-to-nas-backup.env`:
 - `BACKUP_HOST_PATH` - absolute NAS path for backup data
 - `BACKUP_IMAGE_TAG` - optional upstream image tag
 - `GH_ACCOUNT` - GitHub user or organization
+- `GH_TOKEN_TYPE` - `fine` (default) or `classic`; match the secret's token
 - `GH_ORGANIZATION=true` when backing up an organization
 - optional scheduling, verification, selection and keepalive settings
 
@@ -89,7 +98,7 @@ sudo chown 1000:1000 secrets/github_token
 sudo chmod 400 secrets/github_token
 ```
 
-Use a read-only fine-grained Personal Access Token where possible. Typical permissions are read access to Contents, Metadata, Issues, Pull Requests and Discussions.
+Use a fine-grained Personal Access Token with read permissions where possible. Typical permissions are read access to Contents, Metadata, Issues, Pull Requests and Discussions. If private-repository **document attachments** must be included, see the classic-token limitation and permissions discussion above.
 
 ### NAS filesystem permissions (UID/GID)
 
@@ -177,6 +186,7 @@ All settings live in `github-to-nas-backup.env`, loaded through service `env_fil
 | Variable | Default | Meaning |
 |---|---|---|
 | `GH_ACCOUNT` | required | GitHub user or organization |
+| `GH_TOKEN_TYPE` | `fine` | `fine` → `--token-fine`; `classic` → `--token` (required for private repository non-image attachments) |
 | `GH_ORGANIZATION` | `false` | `true` when the account is an organization |
 | `BACKUP_HOST_PATH` | required | Host path mounted as `/data` |
 | `BACKUP_IMAGE_TAG` | `latest` | Image tag; pin a release for reproducibility |
@@ -191,7 +201,7 @@ All settings live in `github-to-nas-backup.env`, loaded through service `env_fil
 | `VERIFY_LFS` | `true` | Re-hash all LFS objects during verification |
 | `VERIFY_KEEPALIVE_URL`, `VERIFY_KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after verification |
 
-Interval values are validated at startup; a non-numeric value stops the container with an error. The boolean options `GH_ORGANIZATION`, `INCLUDE_PRIVATE`, `INCLUDE_FORKS`, `VERIFY_LFS` and `ALIGN_SCHEDULE` also require **exactly** lowercase `true` or `false`. Other spellings (`True`, `yes`, `1`) and explicitly empty values stop the container **before backup execution**, rather than silently excluding private repositories, forks, organization mode or LFS verification. Unset boolean options retain the defaults shown in the table.
+Interval values are validated at startup; a non-numeric value stops the container with an error. The boolean options `GH_ORGANIZATION`, `INCLUDE_PRIVATE`, `INCLUDE_FORKS`, `VERIFY_LFS` and `ALIGN_SCHEDULE` also require **exactly** lowercase `true` or `false`. Other spellings (`True`, `yes`, `1`) and explicitly empty values stop the container **before backup execution**, rather than silently excluding private repositories, forks, organization mode or LFS verification. Unset boolean options retain the defaults shown in the table. `GH_TOKEN_TYPE` likewise accepts only the exact values `fine` or `classic`; invalid or explicitly empty values fail during startup.
 
 The container handles `docker stop` gracefully: the running `github-backup` is terminated and the loop exits immediately.
 

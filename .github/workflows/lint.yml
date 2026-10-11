@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck --shell=sh backup-loop.sh verify-backups.sh
+        run: shellcheck --shell=sh backup-loop.sh verify-backups.sh tests/test-token-type.sh
       - name: Reject invalid boolean configuration
         run: |
           for name in GH_ORGANIZATION INCLUDE_PRIVATE INCLUDE_FORKS VERIFY_LFS ALIGN_SCHEDULE; do
@@ -28,6 +28,8 @@ jobs:
           done
       - name: Test schedule alignment and running markers
         run: sh tests/test-backup-loop.sh
+      - name: Test fine/classic token flags and validation
+        run: sh tests/test-token-type.sh
       - name: Verify repository and wiki mirrors (regression)
         run: |
           tmp="$(mktemp -d)"

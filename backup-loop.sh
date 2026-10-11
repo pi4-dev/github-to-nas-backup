@@ -13,6 +13,7 @@
 set -eu
 
 GH_ACCOUNT="${GH_ACCOUNT:?GH_ACCOUNT must be set}"
+GH_TOKEN_TYPE="${GH_TOKEN_TYPE-fine}"
 GH_ORGANIZATION="${GH_ORGANIZATION-false}"
 INCLUDE_PRIVATE="${INCLUDE_PRIVATE-true}"
 INCLUDE_FORKS="${INCLUDE_FORKS-true}"
@@ -72,6 +73,17 @@ require_bool() {
         true | false) ;;
         *)
             warn "ERROR: $1 must be 'true' or 'false', got '$2'"
+            exit 1
+            ;;
+    esac
+}
+
+# Reject invalid authentication modes rather than silently falling back.
+require_token_type() {
+    case "$GH_TOKEN_TYPE" in
+        fine | classic) ;;
+        *)
+            warn "ERROR: GH_TOKEN_TYPE must be 'fine' or 'classic', got '$GH_TOKEN_TYPE'"
             exit 1
             ;;
     esac
@@ -175,12 +187,17 @@ run_verification_if_due() {
 run_github_backup() {
     mode="$1"
 
+    case "$GH_TOKEN_TYPE" in
+        fine) token_option=--token-fine ;;
+        classic) token_option=--token ;;
+    esac
+
     # Flags that are always on: everything that makes the archive complete
     # (mirror + LFS + wikis + all issue/PR/discussion/release metadata).
     # NOTE: timeline/details/reviews cost many API calls per item and are the
     # main consumer of the GitHub rate limit on large accounts.
     set -- "$GH_ACCOUNT" \
-        --token-fine "file://$TOKEN_FILE" \
+        "$token_option" "file://$TOKEN_FILE" \
         --output-directory "$BACKUP_DIR" \
         --repositories --bare --lfs --wikis \
         --issues --issue-comments --issue-events --issue-timeline \
@@ -320,6 +337,7 @@ main() {
     require_bool INCLUDE_FORKS "$INCLUDE_FORKS"
     require_bool VERIFY_LFS "$VERIFY_LFS"
     require_bool ALIGN_SCHEDULE "$ALIGN_SCHEDULE"
+    require_token_type
     if [ "$ALIGN_SCHEDULE" = "true" ] && [ "$BACKUP_INTERVAL" -eq 0 ]; then
         warn "ERROR: ALIGN_SCHEDULE=true requires BACKUP_INTERVAL > 0"
         exit 1
