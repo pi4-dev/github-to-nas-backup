@@ -11,6 +11,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: ShellCheck
         run: shellcheck --shell=sh backup-loop.sh verify-backups.sh
+      - name: Reject invalid boolean configuration
+        run: |
+          for name in GH_ORGANIZATION INCLUDE_PRIVATE INCLUDE_FORKS VERIFY_LFS; do
+            for value in True yes 1 ''; do
+              if output="$(env GH_ACCOUNT=ci "$name=$value" sh ./backup-loop.sh 2>&1)"; then
+                echo "Expected startup failure for $name='$value'" >&2
+                exit 1
+              fi
+              expected="ERROR: $name must be 'true' or 'false', got '$value'"
+              if ! printf '%s\n' "$output" | grep -Fq "$expected"; then
+                echo "Unexpected error for $name='$value': $output" >&2
+                exit 1
+              fi
+            done
+          done
       - name: Validate compose file
         run: |
           cp .env.example .env
