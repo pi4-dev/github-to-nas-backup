@@ -26,6 +26,30 @@ jobs:
               fi
             done
           done
+      - name: Verify repository and wiki mirrors (regression)
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          git init -q "$tmp/source"
+          git -C "$tmp/source" -c user.name=CI -c user.email=ci@example.invalid commit --allow-empty -qm initial
+          mkdir -p "$tmp/backup/repositories/example"
+          git clone --mirror -q "$tmp/source" "$tmp/backup/repositories/example/repository"
+          git clone --mirror -q "$tmp/source" "$tmp/backup/repositories/example/wiki"
+          printf '{}\n' > "$tmp/backup/repositories/example/metadata.json"
+          # A dangling (not corrupt) blob should not pollute verification logs.
+          printf 'orphan\n' | git --git-dir="$tmp/backup/repositories/example/repository" hash-object -w --stdin > /dev/null
+          output="$(BACKUP_ROOT="$tmp/backup" VERIFY_LFS=false sh ./verify-backups.sh 2>&1)"
+          printf '%s\n' "$output" | grep -Fq "/wiki ==="
+          if printf '%s\n' "$output" | grep -Fq 'dangling blob'; then
+            echo 'Unexpected dangling-object warning in healthy mirror' >&2
+            exit 1
+          fi
+          # A broken wiki ref must cause the overall verification to fail.
+          printf '%040d\n' 0 > "$tmp/backup/repositories/example/wiki/refs/heads/broken"
+          if BACKUP_ROOT="$tmp/backup" VERIFY_LFS=false sh ./verify-backups.sh; then
+            echo 'Expected verification to fail for a corrupted wiki' >&2
+            exit 1
+          fi
       - name: Validate compose file
         run: |
           cp .env.example .env
