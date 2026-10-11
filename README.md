@@ -110,7 +110,7 @@ Replace the example path with the **exact** value of `BACKUP_HOST_PATH`. The rec
 Check access with the actual container user **before** starting scheduled backups:
 
 ```bash
-docker compose --env-file ./github-to-nas-backup.env run --rm --entrypoint /bin/sh github-backup -ec '
+docker compose --env-file ./github-to-nas-backup.env run --rm --entrypoint /bin/sh github-to-nas-backup -ec '
   id
   test -r /run/secrets/github_token || { echo "GitHub token is unreadable" >&2; exit 1; }
   test -w /data || { echo "Backup directory is not writable" >&2; exit 1; }
@@ -133,7 +133,13 @@ docker compose --env-file ./github-to-nas-backup.env up -d
 Follow logs:
 
 ```bash
-docker compose --env-file ./github-to-nas-backup.env logs -f github-backup
+docker compose --env-file ./github-to-nas-backup.env logs -f github-to-nas-backup
+```
+
+When upgrading from the previous Compose service name `github-backup`, remove the old orphaned service so it does not run concurrently against the same backup storage:
+
+```bash
+docker compose --env-file ./github-to-nas-backup.env up -d --remove-orphans
 ```
 
 ## Configuration reference

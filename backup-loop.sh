@@ -1,5 +1,5 @@
 #!/bin/sh
-# Periodic GitHub backup loop (entrypoint of the github-backup container).
+# Periodic GitHub backup loop (entrypoint of the github-to-nas-backup container).
 #
 # Every BACKUP_INTERVAL seconds it runs python-github-backup (a "full" run when
 # FULL_INTERVAL has elapsed since the last one, "incremental" otherwise) and,

@@ -57,7 +57,7 @@ jobs:
           docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --quiet
           # Check BOTH CLI interpolation and the application env_file.
           docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --format json | jq -e '
-            .services["github-backup"] as $service |
+            .services["github-to-nas-backup"] as $service |
             ($service.image == "ghcr.io/josegonzalez/python-github-backup:latest") and
             ($service.environment.GH_ACCOUNT == "your-github-user-or-organization") and
             (any($service.volumes[]; .target == "/data" and .source == "/absolute/path/to/backup/storage"))

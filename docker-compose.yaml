@@ -1,9 +1,9 @@
 services:
-  github-backup:
+  github-to-nas-backup:
     # Pin to a release tag (or digest) for reproducible flags; bump deliberately.
     # Tags: https://github.com/josegonzalez/python-github-backup/pkgs/container/python-github-backup
     image: ghcr.io/josegonzalez/python-github-backup:${BACKUP_IMAGE_TAG:-latest}
-    container_name: github-backup
+    container_name: github-to-nas-backup
     restart: unless-stopped
     # Reap child processes and forward signals correctly.
     init: true
