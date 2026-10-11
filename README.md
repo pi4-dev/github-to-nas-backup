@@ -231,7 +231,7 @@ to verify after every successful backup.
 
 The verifier checks:
 
-1. every Git mirror with `git fsck --full`;
+1. every repository and wiki Git mirror with `git fsck --full --no-dangling` (ignoring harmless dangling-object messages);
 2. every exported `.json` metadata file by parsing it;
 3. every stored Git LFS object by recalculating its SHA-256 hash and comparing it with the LFS object ID.
 
