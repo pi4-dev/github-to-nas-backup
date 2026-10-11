@@ -23,6 +23,10 @@ done
 # Intercept the actual command argv without invoking GitHub or reading a token.
 TOKEN_FILE="$tmp/test-token"
 run_interruptible() {
+    case "$GH_TOKEN_TYPE:$EXPECTED_FLAG" in
+        fine:--token-fine | classic:--token) ;;
+        *) fail "token mode/flag expectation mismatch" ;;
+    esac
     [ "$1" = github-backup ] || fail "unexpected executable: $1"
     shift
     [ "$1" = "$GH_ACCOUNT" ] || fail "wrong account: $1"
