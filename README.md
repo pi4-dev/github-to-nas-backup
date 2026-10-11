@@ -90,10 +90,42 @@ Create the token secret:
 ```bash
 mkdir -p secrets
 printf '%s\n' 'YOUR_GITHUB_TOKEN' > secrets/github_token
-chmod 600 secrets/github_token
+sudo chown 1000:1000 secrets/github_token
+sudo chmod 400 secrets/github_token
 ```
 
 Use a read-only fine-grained Personal Access Token where possible. Typical permissions are read access to Contents, Metadata, Issues, Pull Requests and Discussions.
+
+### NAS filesystem permissions (UID/GID)
+
+The upstream `josegonzalez/python-github-backup` image runs as `appuser` with **UID 1000 and GID 1000**. This Compose setup uses that account (no `user:` override). Both the GitHub token and `/data` must therefore be accessible to **1000:1000**, regardless of the NAS login user's UID/GID (for example, Synology users may start at UID 1026).
+
+With ordinary Docker Compose (non-Swarm), a secret declared with `file:` is mounted from the host, retaining its host filesystem permissions. **`chmod 600` alone is insufficient** when the token file belongs to another UID. The Quick start uses `chown 1000:1000` plus `chmod 400` so only UID 1000 can read the token; no write permission inside the container is needed.
+
+Create a **dedicated backup directory** matching `BACKUP_HOST_PATH` in `.env` and make it writable by UID 1000:
+
+```bash
+sudo mkdir -p /absolute/path/to/backup/storage
+sudo chown -R 1000:1000 /absolute/path/to/backup/storage
+sudo chmod u+rwx /absolute/path/to/backup/storage
+```
+
+Replace the example path with the **exact** value of `BACKUP_HOST_PATH`. The recursive `chown` is intended only for a dedicated backup tree (including pre-existing `status/` and repository data), **not** a shared NAS directory. Parent directories must also allow traversal. On a NAS using ACLs, NFS/SMB mounts, or Docker user-namespace remapping, adjust the effective host UID/GID or grant equivalent permissions through the NAS ACLs instead of assuming `chown` will work.
+
+Check access with the actual container user **before** starting scheduled backups:
+
+```bash
+docker compose run --rm --entrypoint /bin/sh github-backup -ec '
+  id
+  test -r /run/secrets/github_token || { echo "GitHub token is unreadable" >&2; exit 1; }
+  test -w /data || { echo "Backup directory is not writable" >&2; exit 1; }
+  mkdir -p /data/status
+  test -w /data/status || { echo "Status directory is not writable" >&2; exit 1; }
+  echo "Permissions OK"
+'
+```
+
+The entrypoint also checks these permissions at startup and exits with an actionable error instead of repeatedly attempting backups with an unreadable token or unwritable storage. Do not add a configurable `user:` override without validating the upstream image's home directory and its runtime write paths for the chosen UID.
 
 Start the service:
 
