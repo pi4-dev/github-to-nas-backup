@@ -28,6 +28,35 @@ jobs:
           done
       - name: Test schedule alignment and running markers
         run: sh tests/test-backup-loop.sh
+      - name: Verify fail-closed test detects a bypass mutation
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          mkdir -p "$tmp/tests"
+          cp backup-loop.sh "$tmp/backup-loop.sh"
+          cp tests/test-backup-loop.sh "$tmp/tests/test-backup-loop.sh"
+          # Deliberately suppress a failed marker write in an isolated copy.
+          python3 - "$tmp/backup-loop.sh" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          original = path.read_text()
+          faulty = """    if ! touch "$LAST_START" "$RUNNING"; then
+        warn "ERROR: cannot update $LAST_START and $RUNNING; refusing to start an untracked backup"
+        exit 1
+    fi"""
+          assert original.count(faulty) == 1, "fail-closed block changed; update mutation test"
+          path.write_text(original.replace(faulty, '    touch "$LAST_START" "$RUNNING" || true'))
+          PY
+          if output="$(cd "$tmp" && sh tests/test-backup-loop.sh 2>&1)"; then
+            echo "Mutation escaped fail-closed regression test" >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$output" | grep -Fq "FAIL: backup ran without a usable activity marker"; then
+            echo "Mutated test failed for an unrelated reason: $output" >&2
+            exit 1
+          fi
       - name: Test fine/classic token flags and validation
         run: sh tests/test-token-type.sh
       - name: Verify repository and wiki mirrors (regression)
