@@ -2,7 +2,7 @@
 # Integrity verification of a backup produced by backup-loop.sh.
 #
 # Checks, in order:
-#   1. git fsck --full for every mirror in $BACKUP_ROOT/repositories/*/repository
+#   1. git fsck --full --no-dangling for repository and wiki mirrors
 #   2. every exported *.json file parses (and at least one exists)
 #   3. every Git LFS object matches the SHA-256 in its file name
 #      (skipped when VERIFY_LFS=false; hashing large stores takes a while)
@@ -19,7 +19,7 @@ failures=0
 
 echo "Starting repository integrity verification."
 
-for repo in "$BACKUP_ROOT"/repositories/*/repository; do
+for repo in "$BACKUP_ROOT"/repositories/*/repository "$BACKUP_ROOT"/repositories/*/wiki; do
     [ -d "$repo" ] || continue
     found=1
 
@@ -28,7 +28,7 @@ for repo in "$BACKUP_ROOT"/repositories/*/repository; do
 
     # safe.directory is set per repository because the backup is owned by a
     # different user than the one running the check; avoids a global '*'.
-    if git -c safe.directory="$repo" --git-dir="$repo" fsck --full; then
+    if git -c safe.directory="$repo" --git-dir="$repo" fsck --full --no-dangling; then
         echo "PASS"
     else
         echo "FAIL" >&2
@@ -39,7 +39,7 @@ done
 echo
 
 if [ "$found" -eq 0 ]; then
-    echo "No repository mirrors found under: $BACKUP_ROOT/repositories" >&2
+    echo "No repository or wiki mirrors found under: $BACKUP_ROOT/repositories" >&2
     exit 1
 fi
 
@@ -48,7 +48,7 @@ if [ "$failures" -ne 0 ]; then
     exit 1
 fi
 
-echo "All Git mirrors passed git fsck --full."
+echo "All repository and wiki mirrors passed git fsck --full --no-dangling."
 echo
 echo "Validating JSON metadata and Git LFS object hashes."
 
