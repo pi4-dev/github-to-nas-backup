@@ -55,7 +55,7 @@ jobs:
             echo "Mutation escaped fail-closed regression test" >&2
             exit 1
           fi
-          if ! printf '%s\n' "$output" | grep -Fq "FAIL: backup ran without a usable activity marker"; then
+          if ! printf '%s\n' "$output" | grep -Eq "FAIL: (untracked backup was allowed to start|backup ran without a usable activity marker)"; then
             echo "Mutated test failed for an unrelated reason: $output" >&2
             exit 1
           fi
