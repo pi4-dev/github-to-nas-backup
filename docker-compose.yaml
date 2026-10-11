@@ -8,10 +8,10 @@ services:
     # Reap child processes and forward signals correctly.
     init: true
 
-    # Application settings live in <project name>-app.env (see app.env.example).
-    # Compose sets COMPOSE_PROJECT_NAME itself (directory name, or -p / .env override).
+    # Runtime environment comes from this file; Compose interpolation additionally
+    # requires: docker compose --env-file ./github-to-nas-backup.env ...
     env_file:
-      - ${COMPOSE_PROJECT_NAME}-app.env
+      - ./github-to-nas-backup.env
 
     volumes:
       - ${BACKUP_HOST_PATH:?BACKUP_HOST_PATH must be set}:/data

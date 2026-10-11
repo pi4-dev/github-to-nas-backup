@@ -1,4 +1,5 @@
 .env
+github-to-nas-backup.env
 *-app.env
 
 data/

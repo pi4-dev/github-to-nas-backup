@@ -49,11 +49,10 @@ The live backup protects against losing GitHub data. Snapshots preserve older st
 ## Files
 
 ```text
-compose.yaml          service definition
-backup-loop.sh        entrypoint: scheduling, markers, keepalive, verification
-verify-backups.sh     integrity verifier (also usable manually)
-.env.example          compose-level settings (copy to .env)
-app.env.example       application settings (copy to <project name>-app.env)
+docker-compose.yaml                service definition
+backup-loop.sh                     entrypoint: scheduling, markers, keepalive, verification
+verify-backups.sh                  integrity verifier (also usable manually)
+github-to-nas-backup.env.example   unified settings (copy to github-to-nas-backup.env)
 secrets/              github_token goes here (git-ignored)
 .github/workflows/    ShellCheck + compose validation
 docs/
@@ -68,22 +67,18 @@ Runtime state markers are written to `<BACKUP_HOST_PATH>/status/` on the NAS.
 Copy the templates:
 
 ```bash
-cp .env.example .env
-cp app.env.example github-to-nas-backup-app.env   # <project name>-app.env
+cp github-to-nas-backup.env.example github-to-nas-backup.env
 ```
 
-Edit `.env` (compose-level settings):
+Edit `github-to-nas-backup.env`:
 
 - `BACKUP_HOST_PATH` - absolute NAS path for backup data
-- optional `BACKUP_IMAGE_TAG`
+- `BACKUP_IMAGE_TAG` - optional upstream image tag
+- `GH_ACCOUNT` - GitHub user or organization
+- `GH_ORGANIZATION=true` when backing up an organization
+- optional scheduling, verification, selection and keepalive settings
 
-The application file is named `${COMPOSE_PROJECT_NAME}-app.env`. Docker Compose sets `COMPOSE_PROJECT_NAME` itself (the directory name, `-p`, or a value in `.env`), so for a checkout in `github-to-nas-backup/` the file is `github-to-nas-backup-app.env`.
-
-Edit `<project name>-app.env` (application settings):
-
-- the GitHub user or organization (`GH_ACCOUNT`)
-- whether the target is an organization (`GH_ORGANIZATION=true`)
-- optional timezone and scheduling intervals
+`docker-compose.yaml` includes `github-to-nas-backup.env` as a service-level `env_file`. **That does not provide variables for Compose interpolation** (including the backup volume's host path and image tag). Always pass the same file with `docker compose --env-file ./github-to-nas-backup.env ...`. The old `.env` and `*-app.env` configuration files are no longer used. Git ignores the real configuration file, but tracks the `.example`.
 
 Create the token secret:
 
@@ -102,7 +97,7 @@ The upstream `josegonzalez/python-github-backup` image runs as `appuser` with **
 
 With ordinary Docker Compose (non-Swarm), a secret declared with `file:` is mounted from the host, retaining its host filesystem permissions. **`chmod 600` alone is insufficient** when the token file belongs to another UID. The Quick start uses `chown 1000:1000` plus `chmod 400` so only UID 1000 can read the token; no write permission inside the container is needed.
 
-Create a **dedicated backup directory** matching `BACKUP_HOST_PATH` in `.env` and make it writable by UID 1000:
+Create a **dedicated backup directory** matching `BACKUP_HOST_PATH` in `github-to-nas-backup.env` and make it writable by UID 1000:
 
 ```bash
 sudo mkdir -p /absolute/path/to/backup/storage
@@ -115,7 +110,7 @@ Replace the example path with the **exact** value of `BACKUP_HOST_PATH`. The rec
 Check access with the actual container user **before** starting scheduled backups:
 
 ```bash
-docker compose run --rm --entrypoint /bin/sh github-backup -ec '
+docker compose --env-file ./github-to-nas-backup.env run --rm --entrypoint /bin/sh github-backup -ec '
   id
   test -r /run/secrets/github_token || { echo "GitHub token is unreadable" >&2; exit 1; }
   test -w /data || { echo "Backup directory is not writable" >&2; exit 1; }
@@ -130,27 +125,27 @@ The entrypoint also checks these permissions at startup and exits with an action
 Start the service:
 
 ```bash
-docker compose config
-docker compose pull
-docker compose up -d
+docker compose --env-file ./github-to-nas-backup.env config
+docker compose --env-file ./github-to-nas-backup.env pull
+docker compose --env-file ./github-to-nas-backup.env up -d
 ```
 
 Follow logs:
 
 ```bash
-docker compose logs -f github-backup
+docker compose --env-file ./github-to-nas-backup.env logs -f github-backup
 ```
 
 ## Configuration reference
 
-Application settings are environment variables in `<project name>-app.env` (loaded via `env_file`, values are literal - no `${VAR}` interpolation). `BACKUP_HOST_PATH` and `BACKUP_IMAGE_TAG` stay in `.env`. Times are in seconds.
+All settings live in `github-to-nas-backup.env`, loaded through service `env_file` and also passed with `--env-file` for Compose interpolation. Keep the GitHub token in `secrets/github_token`, not in the environment file. Times are in seconds.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GH_ACCOUNT` | required | GitHub user or organization |
 | `GH_ORGANIZATION` | `false` | `true` when the account is an organization |
-| `BACKUP_HOST_PATH` (`.env`) | required | Host path mounted as `/data` |
-| `BACKUP_IMAGE_TAG` (`.env`) | `latest` | Image tag; pin a release for reproducibility |
+| `BACKUP_HOST_PATH` | required | Host path mounted as `/data` |
+| `BACKUP_IMAGE_TAG` | `latest` | Image tag; pin a release for reproducibility |
 | `INCLUDE_PRIVATE` / `INCLUDE_FORKS` | `true` | Include private repositories / forks |
 | `GH_EXTRA_ARGS` | empty | Extra flags passed to `github-backup` |
 | `BACKUP_INTERVAL` | `21600` (6 h) | Pause between runs |
@@ -168,7 +163,7 @@ The container handles `docker stop` gracefully: the running `github-backup` is t
 
 An optional HTTP GET notification can be sent after a backup finishes successfully.
 
-Configure it in the app env file:
+Configure it in `github-to-nas-backup.env`:
 
 ```dotenv
 KEEPALIVE_URL=https://example.invalid/your-monitoring-endpoint

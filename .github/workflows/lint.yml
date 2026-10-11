@@ -52,7 +52,13 @@ jobs:
           fi
       - name: Validate compose file
         run: |
-          cp .env.example .env
-          cp app.env.example ci-app.env
+          cp github-to-nas-backup.env.example github-to-nas-backup.env
           mkdir -p secrets && touch secrets/github_token
-          docker compose -p ci config --quiet
+          docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --quiet
+          # Check BOTH CLI interpolation and the application env_file.
+          docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --format json | jq -e '
+            .services["github-backup"] as $service |
+            ($service.image == "ghcr.io/josegonzalez/python-github-backup:latest") and
+            ($service.environment.GH_ACCOUNT == "your-github-user-or-organization") and
+            (any($service.volumes[]; .target == "/data" and .source == "/absolute/path/to/backup/storage"))
+          '
