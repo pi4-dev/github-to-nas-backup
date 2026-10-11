@@ -12,9 +12,9 @@
 set -eu
 
 GH_ACCOUNT="${GH_ACCOUNT:?GH_ACCOUNT must be set}"
-GH_ORGANIZATION="${GH_ORGANIZATION:-false}"
-INCLUDE_PRIVATE="${INCLUDE_PRIVATE:-true}"
-INCLUDE_FORKS="${INCLUDE_FORKS:-true}"
+GH_ORGANIZATION="${GH_ORGANIZATION-false}"
+INCLUDE_PRIVATE="${INCLUDE_PRIVATE-true}"
+INCLUDE_FORKS="${INCLUDE_FORKS-true}"
 # Extra github-backup flags, intentionally word-split (e.g. "--prefer-ssh").
 GH_EXTRA_ARGS="${GH_EXTRA_ARGS:-}"
 BACKUP_INTERVAL="${BACKUP_INTERVAL:-21600}"
@@ -22,6 +22,8 @@ FULL_INTERVAL="${FULL_INTERVAL:-604800}"
 KEEPALIVE_URL="${KEEPALIVE_URL:-}"
 KEEPALIVE_TIMEOUT="${KEEPALIVE_TIMEOUT:-10}"
 VERIFY_INTERVAL="${VERIFY_INTERVAL:-604800}"
+VERIFY_LFS="${VERIFY_LFS-true}"
+export VERIFY_LFS
 VERIFY_KEEPALIVE_URL="${VERIFY_KEEPALIVE_URL:-}"
 VERIFY_KEEPALIVE_TIMEOUT="${VERIFY_KEEPALIVE_TIMEOUT:-10}"
 
@@ -51,6 +53,18 @@ require_int() {
     case "$2" in
         '' | *[!0-9]*)
             warn "ERROR: $1 must be a non-negative integer (seconds), got '$2'"
+            exit 1
+            ;;
+    esac
+}
+
+# Reject typos before running a backup; non-true values must not silently
+# disable private repositories, forks, organization mode or LFS verification.
+require_bool() {
+    case "$2" in
+        true | false) ;;
+        *)
+            warn "ERROR: $1 must be 'true' or 'false', got '$2'"
             exit 1
             ;;
     esac
@@ -223,6 +237,11 @@ main() {
     require_int VERIFY_INTERVAL "$VERIFY_INTERVAL"
     require_int KEEPALIVE_TIMEOUT "$KEEPALIVE_TIMEOUT"
     require_int VERIFY_KEEPALIVE_TIMEOUT "$VERIFY_KEEPALIVE_TIMEOUT"
+
+    require_bool GH_ORGANIZATION "$GH_ORGANIZATION"
+    require_bool INCLUDE_PRIVATE "$INCLUDE_PRIVATE"
+    require_bool INCLUDE_FORKS "$INCLUDE_FORKS"
+    require_bool VERIFY_LFS "$VERIFY_LFS"
 
     check_host_permissions
     trap on_signal TERM INT
