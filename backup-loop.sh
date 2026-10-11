@@ -203,7 +203,10 @@ run_github_backup() {
 
 # Remove only our own running marker (never an orphan while idle).
 finish_run() {
-    rm -f "$RUNNING"
+    if ! rm -f "$RUNNING"; then
+        warn "ERROR: cannot remove $RUNNING; refusing to schedule another backup"
+        exit 1
+    fi
     run_active=false
 }
 
@@ -211,7 +214,10 @@ run_backup() {
     mode="$1"
 
     # Mark the whole cycle, including post-backup verification, as active.
-    touch "$LAST_START" "$RUNNING"
+    if ! touch "$LAST_START" "$RUNNING"; then
+        warn "ERROR: cannot update $LAST_START and $RUNNING; refusing to start an untracked backup"
+        exit 1
+    fi
     run_active=true
     log "starting $mode backup for $GH_ACCOUNT"
 

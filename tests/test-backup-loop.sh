@@ -71,6 +71,15 @@ touch "$RUNNING"
 ) || fail "idle handler failed"
 [ -e "$RUNNING" ] || fail "orphan was silently removed"
 
+# A failed marker write must fail closed before github-backup starts.
+if (
+    touch() { return 1; }
+    run_github_backup() { fail "backup ran without a usable activity marker"; }
+    run_backup full
+); then
+    fail "untracked backup was allowed to start"
+fi
+
 # Reject an aligned interval of zero at startup before permissions checks.
 if output="$(env GH_ACCOUNT=ci ALIGN_SCHEDULE=true BACKUP_INTERVAL=0 sh ./backup-loop.sh 2>&1)"; then
     fail "aligned zero interval succeeded"
