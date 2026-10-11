@@ -1,8 +1,11 @@
 #!/bin/sh
 # Periodic GitHub backup loop (entrypoint of the github-to-nas-backup container).
 #
-# Every BACKUP_INTERVAL seconds it runs python-github-backup (a "full" run when
-# FULL_INTERVAL has elapsed since the last one, "incremental" otherwise) and,
+# By default a run starts immediately and the loop sleeps BACKUP_INTERVAL
+# seconds after it finishes. With ALIGN_SCHEDULE=true, starts instead align to
+# epoch-based interval boundaries, skipping slots missed by long backup runs.
+# A "full" run is due when FULL_INTERVAL has elapsed; otherwise incremental.
+# After backup,
 # after a successful backup, optionally pings KEEPALIVE_URL and runs
 # verify-backups.sh when VERIFY_INTERVAL has elapsed.
 #
@@ -18,6 +21,7 @@ INCLUDE_FORKS="${INCLUDE_FORKS-true}"
 # Extra github-backup flags, intentionally word-split (e.g. "--prefer-ssh").
 GH_EXTRA_ARGS="${GH_EXTRA_ARGS:-}"
 BACKUP_INTERVAL="${BACKUP_INTERVAL:-21600}"
+ALIGN_SCHEDULE="${ALIGN_SCHEDULE-false}"
 FULL_INTERVAL="${FULL_INTERVAL:-604800}"
 KEEPALIVE_URL="${KEEPALIVE_URL:-}"
 KEEPALIVE_TIMEOUT="${KEEPALIVE_TIMEOUT:-10}"
@@ -32,6 +36,8 @@ STATUS_DIR="${BACKUP_DIR}/status"
 TOKEN_FILE="/run/secrets/github_token"
 VERIFIER_SCRIPT="/verify-backups.sh"
 
+RUNNING="${STATUS_DIR}/running"
+LAST_START="${STATUS_DIR}/last-start"
 LAST_FULL="${STATUS_DIR}/last-full"
 LAST_SUCCESS="${STATUS_DIR}/last-success"
 LAST_FAILURE="${STATUS_DIR}/last-failure"
@@ -40,6 +46,8 @@ LAST_VERIFY_FAILURE="${STATUS_DIR}/last-verify-failure"
 
 # PID of the currently running child (github-backup or sleep), if any.
 child_pid=""
+# Tracks a marker created by this process (not an orphan left by an older one).
+run_active=false
 
 log() {
     echo "[$(date -Iseconds)] $*"
@@ -77,6 +85,10 @@ on_signal() {
         kill "$child_pid" 2>/dev/null || true
         wait "$child_pid" 2>/dev/null || true
     fi
+    if [ "$run_active" = "true" ]; then
+        rm -f "$RUNNING" || warn "ERROR: could not clear $RUNNING on termination"
+        run_active=false
+    fi
     log "received termination signal, exiting"
     exit 0
 }
@@ -90,6 +102,14 @@ run_interruptible() {
     wait "$child_pid" || status=$?
     child_pid=""
     return "$status"
+}
+
+# Seconds to the NEXT epoch-aligned slot, strictly after the current second.
+# Epoch arithmetic is timezone/DST-independent (e.g., every 21600 seconds
+# produces 00/06/12/18 UTC). The current boundary waits a full interval.
+seconds_until_next_slot() {
+    now="$(date +%s)"
+    echo "$((BACKUP_INTERVAL - now % BACKUP_INTERVAL))"
 }
 
 # Age in seconds of a marker file; prints nothing and fails if it is missing.
@@ -181,14 +201,24 @@ run_github_backup() {
     run_interruptible github-backup "$@"
 }
 
+# Remove only our own running marker (never an orphan while idle).
+finish_run() {
+    rm -f "$RUNNING"
+    run_active=false
+}
+
 run_backup() {
     mode="$1"
 
+    # Mark the whole cycle, including post-backup verification, as active.
+    touch "$LAST_START" "$RUNNING"
+    run_active=true
     log "starting $mode backup for $GH_ACCOUNT"
 
     if ! run_github_backup "$mode"; then
         touch "$LAST_FAILURE"
         warn "backup failed"
+        finish_run
         return 1
     fi
 
@@ -199,6 +229,7 @@ run_backup() {
     log "backup completed successfully"
     send_keepalive "$KEEPALIVE_URL" "$KEEPALIVE_TIMEOUT" "backup"
     run_verification_if_due
+    finish_run
 }
 
 # Compose file-backed secrets keep their host permissions, and the upstream
@@ -242,19 +273,36 @@ main() {
     require_bool INCLUDE_PRIVATE "$INCLUDE_PRIVATE"
     require_bool INCLUDE_FORKS "$INCLUDE_FORKS"
     require_bool VERIFY_LFS "$VERIFY_LFS"
+    require_bool ALIGN_SCHEDULE "$ALIGN_SCHEDULE"
+    if [ "$ALIGN_SCHEDULE" = "true" ] && [ "$BACKUP_INTERVAL" -eq 0 ]; then
+        warn "ERROR: ALIGN_SCHEDULE=true requires BACKUP_INTERVAL > 0"
+        exit 1
+    fi
 
     check_host_permissions
+    if [ -e "$RUNNING" ]; then
+        warn "WARNING: found existing $RUNNING (last start: $LAST_START); possible orphan after abrupt shutdown"
+        warn "WARNING: leaving the marker intact until the next backup starts; inspect before taking snapshots"
+    fi
     trap on_signal TERM INT
 
     while true; do
+        if [ "$ALIGN_SCHEDULE" = "true" ]; then
+            until_slot="$(seconds_until_next_slot)"
+            log "next aligned UTC/epoch slot in $until_slot seconds"
+            run_interruptible sleep "$until_slot"
+        fi
+
         if is_due "$LAST_FULL" "$FULL_INTERVAL"; then
             run_backup full || true
         else
             run_backup incremental || true
         fi
 
-        log "next run in $BACKUP_INTERVAL seconds"
-        run_interruptible sleep "$BACKUP_INTERVAL"
+        if [ "$ALIGN_SCHEDULE" = "false" ]; then
+            log "next run in $BACKUP_INTERVAL seconds after completion"
+            run_interruptible sleep "$BACKUP_INTERVAL"
+        fi
     done
 }
 

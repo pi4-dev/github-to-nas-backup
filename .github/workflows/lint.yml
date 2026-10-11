@@ -13,7 +13,7 @@ jobs:
         run: shellcheck --shell=sh backup-loop.sh verify-backups.sh
       - name: Reject invalid boolean configuration
         run: |
-          for name in GH_ORGANIZATION INCLUDE_PRIVATE INCLUDE_FORKS VERIFY_LFS; do
+          for name in GH_ORGANIZATION INCLUDE_PRIVATE INCLUDE_FORKS VERIFY_LFS ALIGN_SCHEDULE; do
             for value in True yes 1 ''; do
               if output="$(env GH_ACCOUNT=ci "$name=$value" sh ./backup-loop.sh 2>&1)"; then
                 echo "Expected startup failure for $name='$value'" >&2
@@ -26,6 +26,8 @@ jobs:
               fi
             done
           done
+      - name: Test schedule alignment and running markers
+        run: sh tests/test-backup-loop.sh
       - name: Verify repository and wiki mirrors (regression)
         run: |
           tmp="$(mktemp -d)"

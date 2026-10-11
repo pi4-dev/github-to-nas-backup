@@ -97,28 +97,25 @@ They are useful when an old branch, release or metadata object is discovered mis
 
 Monthly restore points provide useful long-term history without retaining every short-term generation indefinitely.
 
-## Snapshot timing
+## Snapshot timing and safe-run checks
 
-Prefer snapshots taken after a successful backup run.
+Prefer snapshots taken after a successful backup run. Even an atomic filesystem snapshot may contain an **inconsistent in-progress backup** (partially updated Git pack files, refs, LFS data or metadata).
 
-A filesystem snapshot can be atomic while the backup process itself is still in the middle of changing:
+The default scheduler waits `BACKUP_INTERVAL` **after** backup and optional verification finish. Its wall-clock start times drift; a NAS snapshot at fixed times is not guaranteed to follow a complete backup. Set `ALIGN_SCHEDULE=true` for UTC epoch-aligned slots, e.g. `BACKUP_INTERVAL=21600` gives **00/06/12/18 UTC**. Missed slots are skipped if a run is still executing. Local snapshot hours change with daylight saving time.
 
-- Git pack files;
-- refs;
-- LFS data;
-- metadata files.
+An illustrative fixed snapshot schedule is **05/11/17/23 UTC**, but only if the preceding backup finishes within five hours. **Never rely on a fixed delay alone.** Before creating a snapshot, the NAS job should confirm:
 
-If the backup runs every 6 hours, schedule snapshots after the expected completion window rather than exactly at backup start.
+1. `status/running` does **not** exist (covers backup, verification and notifications).
+2. `status/last-success` exists and its mtime is **at least** that of `status/last-start` (the latest started GitHub backup completed successfully).
+3. `status/last-failure` is absent; optionally require a fresh `last-verify-success` when a verified snapshot is needed.
 
-Where possible, use the successful backup marker as the authoritative signal that a backup cycle finished.
+`status/last-start` and `status/running` are created together at the start of each cycle. `running` is removed on normal completion, handled failures and SIGTERM/SIGINT. A power loss or SIGKILL can leave an **orphaned running marker**. Treat it as a reason to defer snapshots and investigate `last-start`, logs and process status. After restart an orphan is logged and retained until the next backup starts.
+
+These filesystem marker checks are **advisory rather than an atomic lock**: a backup can begin between a NAS-side check and the snapshot operation. When strict consistency is required, serialize snapshots and backup starts using a shared lock, or trigger the snapshot via a completion hook with mutual exclusion. Monitor snapshot freshness and alert if checks prevent snapshots for too long.
 
 ## Recovery objectives
 
-With the default 6-hour backup interval:
-
-```text
-Nominal RPO <= 6 hours
-```
+With `BACKUP_INTERVAL=21600`, aligned starts offer a nominal 6-hour cadence **only if runs finish within one slot**. Without alignment, the interval is measured from the end of each run. With overruns, failures or skipped slots, the actual RPO can exceed six hours; monitor the age of `last-success`.
 
 The local Git mirror usually gives a short RTO for restoring an individual repository.
 
@@ -198,7 +195,7 @@ Create an additional recovery point before:
 
 ```text
 Backup:
-  incremental        every 6 hours
+  incremental        every 6 hours after completion by default; UTC slots when aligned
   full metadata      every 7 days
 
 Snapshots:

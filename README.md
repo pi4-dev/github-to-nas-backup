@@ -154,14 +154,15 @@ All settings live in `github-to-nas-backup.env`, loaded through service `env_fil
 | `BACKUP_IMAGE_TAG` | `latest` | Image tag; pin a release for reproducibility |
 | `INCLUDE_PRIVATE` / `INCLUDE_FORKS` | `true` | Include private repositories / forks |
 | `GH_EXTRA_ARGS` | empty | Extra flags passed to `github-backup` |
-| `BACKUP_INTERVAL` | `21600` (6 h) | Pause between runs |
+| `BACKUP_INTERVAL` | `21600` (6 h) | Seconds between aligned slots, or sleep duration after each run in default mode |
+| `ALIGN_SCHEDULE` | `false` | `true` to align starts to UTC epoch boundaries; requires `BACKUP_INTERVAL > 0` |
 | `FULL_INTERVAL` | `604800` (7 d) | Age after which a non-incremental run is done |
 | `KEEPALIVE_URL`, `KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after a backup |
 | `VERIFY_INTERVAL` | `604800` (7 d) | Time between verifications; `0` = every backup |
 | `VERIFY_LFS` | `true` | Re-hash all LFS objects during verification |
 | `VERIFY_KEEPALIVE_URL`, `VERIFY_KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after verification |
 
-Interval values are validated at startup; a non-numeric value stops the container with an error. The boolean options `GH_ORGANIZATION`, `INCLUDE_PRIVATE`, `INCLUDE_FORKS` and `VERIFY_LFS` also require **exactly** lowercase `true` or `false`. Other spellings (`True`, `yes`, `1`) and explicitly empty values stop the container **before backup execution**, rather than silently excluding private repositories, forks, organization mode or LFS verification. Unset boolean options retain the defaults shown in the table.
+Interval values are validated at startup; a non-numeric value stops the container with an error. The boolean options `GH_ORGANIZATION`, `INCLUDE_PRIVATE`, `INCLUDE_FORKS`, `VERIFY_LFS` and `ALIGN_SCHEDULE` also require **exactly** lowercase `true` or `false`. Other spellings (`True`, `yes`, `1`) and explicitly empty values stop the container **before backup execution**, rather than silently excluding private repositories, forks, organization mode or LFS verification. Unset boolean options retain the defaults shown in the table.
 
 The container handles `docker stop` gracefully: the running `github-backup` is terminated and the loop exits immediately.
 
@@ -191,26 +192,36 @@ If the backup succeeds but the keepalive endpoint itself fails or times out, the
 
 This makes the option suitable for success-ping services such as self-hosted monitoring endpoints or health-check systems.
 
-## Default schedule
+## Backup schedule and activity markers
 
-```text
-Incremental backup: every 6 hours
-Full metadata refresh: every 7 days
+By default (`ALIGN_SCHEDULE=false`), the first backup starts immediately. The next run begins **`BACKUP_INTERVAL` seconds after the previous cycle finishes**, including optional verification and notifications. With a 6-hour interval and a 40-minute run, starts are roughly 6 h 40 min apart; wall-clock start times drift.
+
+For fixed UTC-aligned start slots, configure:
+
+```dotenv
+BACKUP_INTERVAL=21600
+ALIGN_SCHEDULE=true
 ```
 
-The first run is full.
+This schedules starts at **00:00 / 06:00 / 12:00 / 18:00 UTC** (epoch multiples of 21600 s). The first run waits until the **next** slot, even if the container starts exactly on a boundary. Long-running backups **never overlap**: missed slots are skipped and the following run waits for the next future slot. Timezone and DST do not change the UTC slots; local times in Europe/Warsaw shift between CET and CEST. When aligned, `BACKUP_INTERVAL` must be greater than zero; `ALIGN_SCHEDULE` accepts exactly `true` or `false`.
 
-The wrapper records:
+The first executed run is full; further non-incremental refreshes are due when `FULL_INTERVAL` elapses (default 7 days).
+
+The wrapper uses these status files under `BACKUP_HOST_PATH/status/`:
 
 ```text
-status/last-full
-status/last-success
-status/last-failure
-status/last-verify-success
-status/last-verify-failure
+status/running                exists while backup and post-backup verification run
+status/last-start             touched at start of every run
+status/last-full              last successful full run
+status/last-success           last successful GitHub backup
+status/last-failure           last failed GitHub backup (cleared on success)
+status/last-verify-success    last successful integrity verification
+status/last-verify-failure    last failed verification
 ```
 
-These files can be monitored externally.
+`status/running` is removed after a successful or failed backup cycle and on normal SIGTERM/SIGINT shutdown. An abrupt crash, SIGKILL or power loss can leave it behind; compare its mtime with `last-start`, recent logs and container status. On restart an existing marker is reported and preserved until a new run begins, rather than being silently treated as a live backup.
+
+**Snapshot automation should check more than a clock:** `running` must be absent, a fresh `last-success` must exist for the latest `last-start`, and ideally there should be no `last-failure`. In aligned mode, 05:00 / 11:00 / 17:00 / 23:00 **UTC** are illustrative snapshot slots *only if* backups finish within five hours. A status check and snapshot are not atomic, so a race remains if a backup starts between them; for strict exclusion use a coordinated lock or an explicit snapshot hook after completion. See [docs/SNAPSHOT-STRATEGY.md](docs/SNAPSHOT-STRATEGY.md).
 
 ## Automated verification
 
