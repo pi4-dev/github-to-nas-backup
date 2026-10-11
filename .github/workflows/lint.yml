@@ -42,10 +42,12 @@ jobs:
 
           path = pathlib.Path(sys.argv[1])
           original = path.read_text()
-          faulty = """    if ! touch "$LAST_START" "$RUNNING"; then
-        warn "ERROR: cannot update $LAST_START and $RUNNING; refusing to start an untracked backup"
-        exit 1
-    fi"""
+          faulty = '\n'.join([
+              '    if ! touch "$LAST_START" "$RUNNING"; then',
+              '        warn "ERROR: cannot update $LAST_START and $RUNNING; refusing to start an untracked backup"',
+              '        exit 1',
+              '    fi',
+          ])
           assert original.count(faulty) == 1, "fail-closed block changed; update mutation test"
           path.write_text(original.replace(faulty, '    touch "$LAST_START" "$RUNNING" || true'))
           PY
