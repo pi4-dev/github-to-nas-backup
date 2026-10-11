@@ -1,13 +1,11 @@
 #!/bin/sh
 # Periodic GitHub backup loop (entrypoint of the github-to-nas-backup container).
 #
-# By default a run starts immediately and the loop sleeps BACKUP_INTERVAL
-# seconds after it finishes. With ALIGN_SCHEDULE=true, starts instead align to
-# epoch-based interval boundaries, skipping slots missed by long backup runs.
-# A "full" run is due when FULL_INTERVAL has elapsed; otherwise incremental.
-# After backup,
-# after a successful backup, optionally pings KEEPALIVE_URL and runs
-# verify-backups.sh when VERIFY_INTERVAL has elapsed.
+# By default, a run starts immediately, then sleeps BACKUP_INTERVAL after
+# successful completion. ALIGN_SCHEDULE=true uses UTC epoch-aligned slots.
+# Failed backups retry after RETRY_INTERVAL in either mode (never in parallel).
+# Full backups are due after FULL_INTERVAL; successful runs can optionally ping
+# KEEPALIVE_URL and perform verification after VERIFY_INTERVAL.
 #
 # State is kept as marker files in $STATUS_DIR; their mtime is the timestamp.
 # See README.md for the full list of environment variables.
@@ -21,6 +19,7 @@ INCLUDE_FORKS="${INCLUDE_FORKS-true}"
 # Extra github-backup flags, intentionally word-split (e.g. "--prefer-ssh").
 GH_EXTRA_ARGS="${GH_EXTRA_ARGS:-}"
 BACKUP_INTERVAL="${BACKUP_INTERVAL:-21600}"
+RETRY_INTERVAL="${RETRY_INTERVAL-1800}"
 ALIGN_SCHEDULE="${ALIGN_SCHEDULE-false}"
 FULL_INTERVAL="${FULL_INTERVAL:-604800}"
 KEEPALIVE_URL="${KEEPALIVE_URL:-}"
@@ -268,9 +267,50 @@ check_host_permissions() {
     fi
 }
 
+# In aligned mode, normal runs wait for the next UTC slot, but retries are
+# scheduled from the failed run's end and bypass the aligned slot wait.
+wait_before_run() {
+    if [ "$ALIGN_SCHEDULE" = "true" ] && [ "$retry_pending" = "false" ]; then
+        until_slot="$(seconds_until_next_slot)"
+        log "next aligned UTC/epoch slot in $until_slot seconds"
+        run_interruptible sleep "$until_slot"
+    fi
+}
+
+# A verification failure does not retry the GitHub backup: run_backup returns
+# success if GitHub backup succeeded, even if post-backup verification failed.
+wait_after_run() {
+    outcome="$1"
+
+    if [ "$outcome" = "failure" ]; then
+        retry_pending=true
+        log "backup failed; retry in $RETRY_INTERVAL seconds"
+        run_interruptible sleep "$RETRY_INTERVAL"
+    else
+        retry_pending=false
+        if [ "$ALIGN_SCHEDULE" = "false" ]; then
+            log "next run in $BACKUP_INTERVAL seconds after completion"
+            run_interruptible sleep "$BACKUP_INTERVAL"
+        fi
+    fi
+}
+
+run_due_backup() {
+    if is_due "$LAST_FULL" "$FULL_INTERVAL"; then
+        run_backup full
+    else
+        run_backup incremental
+    fi
+}
+
 main() {
     require_int BACKUP_INTERVAL "$BACKUP_INTERVAL"
     require_int FULL_INTERVAL "$FULL_INTERVAL"
+    require_int RETRY_INTERVAL "$RETRY_INTERVAL"
+    if [ "$RETRY_INTERVAL" -eq 0 ]; then
+        warn "ERROR: RETRY_INTERVAL must be greater than zero"
+        exit 1
+    fi
     require_int VERIFY_INTERVAL "$VERIFY_INTERVAL"
     require_int KEEPALIVE_TIMEOUT "$KEEPALIVE_TIMEOUT"
     require_int VERIFY_KEEPALIVE_TIMEOUT "$VERIFY_KEEPALIVE_TIMEOUT"
@@ -291,23 +331,15 @@ main() {
         warn "WARNING: leaving the marker intact until the next backup starts; inspect before taking snapshots"
     fi
     trap on_signal TERM INT
+    retry_pending=false
 
     while true; do
-        if [ "$ALIGN_SCHEDULE" = "true" ]; then
-            until_slot="$(seconds_until_next_slot)"
-            log "next aligned UTC/epoch slot in $until_slot seconds"
-            run_interruptible sleep "$until_slot"
-        fi
+        wait_before_run
 
-        if is_due "$LAST_FULL" "$FULL_INTERVAL"; then
-            run_backup full || true
+        if run_due_backup; then
+            wait_after_run success
         else
-            run_backup incremental || true
-        fi
-
-        if [ "$ALIGN_SCHEDULE" = "false" ]; then
-            log "next run in $BACKUP_INTERVAL seconds after completion"
-            run_interruptible sleep "$BACKUP_INTERVAL"
+            wait_after_run failure
         fi
     done
 }

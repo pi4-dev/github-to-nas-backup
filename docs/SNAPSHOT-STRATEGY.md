@@ -101,7 +101,7 @@ Monthly restore points provide useful long-term history without retaining every 
 
 Prefer snapshots taken after a successful backup run. Even an atomic filesystem snapshot may contain an **inconsistent in-progress backup** (partially updated Git pack files, refs, LFS data or metadata).
 
-The default scheduler waits `BACKUP_INTERVAL` **after** backup and optional verification finish. Its wall-clock start times drift; a NAS snapshot at fixed times is not guaranteed to follow a complete backup. Set `ALIGN_SCHEDULE=true` for UTC epoch-aligned slots, e.g. `BACKUP_INTERVAL=21600` gives **00/06/12/18 UTC**. Missed slots are skipped if a run is still executing. Local snapshot hours change with daylight saving time.
+The default scheduler waits `BACKUP_INTERVAL` **after a successful** backup and optional verification finish. Failed GitHub backups retry after `RETRY_INTERVAL` (default 1800 s); successive failures repeat this delay. Its wall-clock start times drift; a NAS snapshot at fixed times is not guaranteed to follow a complete backup. Set `ALIGN_SCHEDULE=true` for UTC epoch-aligned normal slots, e.g. `BACKUP_INTERVAL=21600` gives **00/06/12/18 UTC**. Missed slots are skipped if a run is still executing. **Retries bypass slot alignment**, so snapshots must still check the `running` and success markers. Local snapshot hours change with daylight saving time.
 
 An illustrative fixed snapshot schedule is **05/11/17/23 UTC**, but only if the preceding backup finishes within five hours. **Never rely on a fixed delay alone.** Before creating a snapshot, the NAS job should confirm:
 
@@ -115,7 +115,7 @@ These filesystem marker checks are **advisory rather than an atomic lock**: a ba
 
 ## Recovery objectives
 
-With `BACKUP_INTERVAL=21600`, aligned starts offer a nominal 6-hour cadence **only if runs finish within one slot**. Without alignment, the interval is measured from the end of each run. With overruns, failures or skipped slots, the actual RPO can exceed six hours; monitor the age of `last-success`.
+With `BACKUP_INTERVAL=21600`, aligned normal starts offer a nominal 6-hour cadence **only if runs finish within one slot**. Without alignment, the normal interval is measured from the end of a successful run. After failure, the shorter `RETRY_INTERVAL` limits the wait before attempting again but **does not guarantee** a successful backup or a 6-hour RPO. With overruns, failures or skipped slots, the actual RPO can exceed six hours; monitor the age of `last-success`.
 
 The local Git mirror usually gives a short RTO for restoring an individual repository.
 

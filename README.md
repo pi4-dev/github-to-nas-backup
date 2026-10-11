@@ -154,7 +154,8 @@ All settings live in `github-to-nas-backup.env`, loaded through service `env_fil
 | `BACKUP_IMAGE_TAG` | `latest` | Image tag; pin a release for reproducibility |
 | `INCLUDE_PRIVATE` / `INCLUDE_FORKS` | `true` | Include private repositories / forks |
 | `GH_EXTRA_ARGS` | empty | Extra flags passed to `github-backup` |
-| `BACKUP_INTERVAL` | `21600` (6 h) | Seconds between aligned slots, or sleep duration after each run in default mode |
+| `BACKUP_INTERVAL` | `21600` (6 h) | Seconds between aligned slots, or sleep duration after a successful run in default mode |
+| `RETRY_INTERVAL` | `1800` (30 min) | Delay after a failed GitHub backup before the next attempt; must be greater than zero |
 | `ALIGN_SCHEDULE` | `false` | `true` to align starts to UTC epoch boundaries; requires `BACKUP_INTERVAL > 0` |
 | `FULL_INTERVAL` | `604800` (7 d) | Age after which a non-incremental run is done |
 | `KEEPALIVE_URL`, `KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after a backup |
@@ -194,7 +195,11 @@ This makes the option suitable for success-ping services such as self-hosted mon
 
 ## Backup schedule and activity markers
 
-By default (`ALIGN_SCHEDULE=false`), the first backup starts immediately. The next run begins **`BACKUP_INTERVAL` seconds after the previous cycle finishes**, including optional verification and notifications. With a 6-hour interval and a 40-minute run, starts are roughly 6 h 40 min apart; wall-clock start times drift.
+By default (`ALIGN_SCHEDULE=false`), the first backup starts immediately. **After a successful backup**, the next run begins `BACKUP_INTERVAL` seconds after the cycle finishes, including optional verification and notifications. With a 6-hour interval and a 40-minute run, starts are roughly 6 h 40 min apart; wall-clock start times drift.
+
+If `github-backup` fails (nonzero exit), the next attempt is scheduled **`RETRY_INTERVAL` seconds after the failed run ends**. The default is 1800 seconds (30 minutes); consecutive failures each retry after that delay. `RETRY_INTERVAL` must be a positive integer. The retry runs the same full/incremental mode selection based on the existing `last-full` timestamp, so a failed full backup is retried as full. The `last-failure` marker persists until GitHub backup succeeds, and failure never sends `KEEPALIVE_URL`.
+
+A verification failure is tracked separately by `last-verify-failure` and **does not trigger a GitHub backup retry** when the backup itself succeeded; verification runs again after the next successful scheduled backup.
 
 For fixed UTC-aligned start slots, configure:
 
@@ -203,7 +208,7 @@ BACKUP_INTERVAL=21600
 ALIGN_SCHEDULE=true
 ```
 
-This schedules starts at **00:00 / 06:00 / 12:00 / 18:00 UTC** (epoch multiples of 21600 s). The first run waits until the **next** slot, even if the container starts exactly on a boundary. Long-running backups **never overlap**: missed slots are skipped and the following run waits for the next future slot. Timezone and DST do not change the UTC slots; local times in Europe/Warsaw shift between CET and CEST. When aligned, `BACKUP_INTERVAL` must be greater than zero; `ALIGN_SCHEDULE` accepts exactly `true` or `false`.
+This schedules normal starts at **00:00 / 06:00 / 12:00 / 18:00 UTC** (epoch multiples of 21600 s). The first run waits until the **next** slot, even if the container starts exactly on a boundary. Long-running backups **never overlap**: missed slots are skipped. On failure, the `RETRY_INTERVAL` countdown **overrides alignment**, allowing a retry between regular slots. After a successful retry, scheduling resumes at the next future aligned slot (without an immediate extra run). Timezone and DST do not change the UTC slots; local times in Europe/Warsaw shift between CET and CEST. When aligned, `BACKUP_INTERVAL` must be greater than zero; `ALIGN_SCHEDULE` accepts exactly `true` or `false`.
 
 The first executed run is full; further non-incremental refreshes are due when `FULL_INTERVAL` elapses (default 7 days).
 
