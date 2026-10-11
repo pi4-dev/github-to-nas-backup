@@ -187,6 +187,36 @@ run_backup() {
     run_verification_if_due
 }
 
+# Compose file-backed secrets keep their host permissions, and the upstream
+# image runs as UID:GID 1000:1000. Fail fast if the host NAS paths do not allow
+# the container user to read its token or write backup/status files.
+check_host_permissions() {
+    runtime_id="$(id -u):$(id -g)"
+
+    if [ ! -f "$TOKEN_FILE" ] || [ ! -r "$TOKEN_FILE" ]; then
+        warn "ERROR: GitHub token secret $TOKEN_FILE is not readable by UID:GID $runtime_id"
+        warn "Fix host secret ownership and permissions (default: chown 1000:1000, chmod 400); see README.md"
+        exit 1
+    fi
+
+    if [ ! -d "$BACKUP_DIR" ] || [ ! -w "$BACKUP_DIR" ]; then
+        warn "ERROR: backup directory $BACKUP_DIR is not writable by UID:GID $runtime_id"
+        warn "Fix BACKUP_HOST_PATH ownership or NAS ACLs; see README.md"
+        exit 1
+    fi
+
+    if ! mkdir -p "$STATUS_DIR"; then
+        warn "ERROR: cannot create status directory $STATUS_DIR as UID:GID $runtime_id"
+        exit 1
+    fi
+
+    if [ ! -w "$STATUS_DIR" ]; then
+        warn "ERROR: status directory $STATUS_DIR is not writable by UID:GID $runtime_id"
+        warn "Fix ownership of existing status files/directories or NAS ACLs; see README.md"
+        exit 1
+    fi
+}
+
 main() {
     require_int BACKUP_INTERVAL "$BACKUP_INTERVAL"
     require_int FULL_INTERVAL "$FULL_INTERVAL"
@@ -194,7 +224,7 @@ main() {
     require_int KEEPALIVE_TIMEOUT "$KEEPALIVE_TIMEOUT"
     require_int VERIFY_KEEPALIVE_TIMEOUT "$VERIFY_KEEPALIVE_TIMEOUT"
 
-    mkdir -p "$STATUS_DIR"
+    check_host_permissions
     trap on_signal TERM INT
 
     while true; do
