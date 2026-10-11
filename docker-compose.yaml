@@ -11,6 +11,21 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+    # Health describes freshness of the last successful backup (not a running
+    # job or independent verification). Give the first full backup time to finish.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          f=/data/status/last-success;
+          [ -f "$$f" ] &&
+          age=$$(( $$(date +%s) - $$(stat -c %Y "$$f") )) &&
+          [ "$$age" -ge 0 ] &&
+          [ "$$age" -lt $$(( 3 * $${BACKUP_INTERVAL:-21600} )) ]
+      interval: 15m
+      timeout: 10s
+      start_period: 24h
+
     # Reap child processes and forward signals correctly.
     init: true
 

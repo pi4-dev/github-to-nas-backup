@@ -155,6 +155,21 @@ docker inspect github-to-nas-backup --format '{{json .HostConfig.LogConfig}}'
 
 The inspect output should show `json-file`, `max-size=10m` and `max-file=5`. Existing unbounded historical log files are not retroactively rotated; recreation replaces the old container and its logs.
 
+## Container healthcheck
+
+Docker Compose reports `healthy` when `status/last-success` exists and its modification time is less than **three times `BACKUP_INTERVAL`** old (default: 18 hours). Future-dated timestamps are rejected. This is a **backup freshness** signal, not a guarantee of archive integrity: a running backup or failed verification can coexist with `healthy` as long as the previous success is fresh. For detailed monitoring, continue to track the `running`, `last-failure` and `last-verify-success` markers and the success keepalive.
+
+The built-in check runs every **15 minutes**, has a **10-second timeout**, and uses a **24-hour start period** to allow an initial full backup to finish (including the wait for the first UTC slot if `ALIGN_SCHEDULE=true`). During this grace period failures do not immediately mark the container unhealthy. A first full backup lasting longer than 24 hours may still cause an `unhealthy` status; adapt the start period on large installations if needed.
+
+The threshold is based on elapsed seconds, so drift in unaligned mode, repeated retries, or missed aligned slots can make a still-running process `unhealthy` when no successful backup has completed recently. This is intentional: monitor **successful backup age**, not only process liveness. Docker’s `restart: unless-stopped` does not automatically restart an unhealthy but running container.
+
+Inspect the health status after recreating the service:
+
+```bash
+docker compose --env-file ./github-to-nas-backup.env up -d --force-recreate
+docker inspect github-to-nas-backup --format '{{json .State.Health}}'
+```
+
 ## Configuration reference
 
 All settings live in `github-to-nas-backup.env`, loaded through service `env_file` and also passed with `--env-file` for Compose interpolation. Keep the GitHub token in `secrets/github_token`, not in the environment file. Times are in seconds.

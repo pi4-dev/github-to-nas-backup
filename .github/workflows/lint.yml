@@ -64,6 +64,36 @@ jobs:
             ($service.logging.driver == "json-file") and
             ($service.logging.options["max-size"] == "10m") and
             ($service.logging.options["max-file"] == "5") and
+            ($service.healthcheck.test[0] == "CMD-SHELL") and
+            ($service.healthcheck.test[1] | contains("/data/status/last-success")) and
+            ($service.healthcheck.test[1] | contains("$(date +%s)")) and
+            ($service.healthcheck.test[1] | contains("${BACKUP_INTERVAL:-21600}")) and
             ($service.environment.GH_ACCOUNT == "your-github-user-or-organization") and
             (any($service.volumes[]; .target == "/data" and .source == "/absolute/path/to/backup/storage"))
           '
+      - name: Test backup freshness healthcheck
+        run: |
+          # Extract the FINAL shell command after Compose has processed the $$ escapes.
+          cmd="$(docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --format json | jq -r '.services["github-to-nas-backup"].healthcheck.test[1]')"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          cmd="$(printf '%s\n' "$cmd" | sed "s#/data/status/last-success#$tmp/last-success#g")"
+          if BACKUP_INTERVAL=21600 sh -c "$cmd"; then
+            echo 'Missing success marker incorrectly reported healthy' >&2
+            exit 1
+          fi
+          touch "$tmp/last-success"
+          BACKUP_INTERVAL=21600 sh -c "$cmd"
+          # Five-minute-old backups are healthy at 10-minute intervals,
+          # but too old when the interval is only 60 seconds.
+          touch -d '5 minutes ago' "$tmp/last-success"
+          BACKUP_INTERVAL=600 sh -c "$cmd"
+          if BACKUP_INTERVAL=60 sh -c "$cmd"; then
+            echo 'Stale success marker incorrectly reported healthy' >&2
+            exit 1
+          fi
+          touch -d '1 hour' "$tmp/last-success"
+          if BACKUP_INTERVAL=21600 sh -c "$cmd"; then
+            echo 'Future success marker incorrectly reported healthy' >&2
+            exit 1
+          fi
