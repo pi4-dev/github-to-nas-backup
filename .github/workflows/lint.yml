@@ -75,6 +75,9 @@ jobs:
         run: |
           # Extract the FINAL shell command after Compose has processed the $$ escapes.
           cmd="$(docker compose --env-file ./github-to-nas-backup.env -f docker-compose.yaml -p ci config --format json | jq -r '.services["github-to-nas-backup"].healthcheck.test[1]')"
+          # docker compose config can re-escape $ as $$ for round-trip safety.
+          # Normalize the extracted command before executing it with sh.
+          cmd="$(printf '%s\n' "$cmd" | sed 's/\$\$/\$/g')"
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
           cmd="$(printf '%s\n' "$cmd" | sed "s#/data/status/last-success#$tmp/last-success#g")"
