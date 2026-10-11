@@ -160,7 +160,7 @@ Application settings are environment variables in `<project name>-app.env` (load
 | `VERIFY_LFS` | `true` | Re-hash all LFS objects during verification |
 | `VERIFY_KEEPALIVE_URL`, `VERIFY_KEEPALIVE_TIMEOUT` | empty, `10` | Success ping after verification |
 
-Interval values are validated at start-up; a non-numeric value stops the container with an error.
+Interval values are validated at startup; a non-numeric value stops the container with an error. The boolean options `GH_ORGANIZATION`, `INCLUDE_PRIVATE`, `INCLUDE_FORKS` and `VERIFY_LFS` also require **exactly** lowercase `true` or `false`. Other spellings (`True`, `yes`, `1`) and explicitly empty values stop the container **before backup execution**, rather than silently excluding private repositories, forks, organization mode or LFS verification. Unset boolean options retain the defaults shown in the table.
 
 The container handles `docker stop` gracefully: the running `github-backup` is terminated and the loop exits immediately.
 
