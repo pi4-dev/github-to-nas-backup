@@ -335,11 +335,24 @@ The verification keepalive URL itself is not printed to the logs.
 
 ### Manual verification
 
-Verification can also be started manually:
+Verification uses `git` and **`python3`** (it does not require a `python` command or the Debian/Ubuntu `python-is-python3` package).
+
+**Directly on the NAS/host** (with both commands installed and permissions to read the backup data):
 
 ```bash
 BACKUP_ROOT=/path/to/backup/storage sh ./verify-backups.sh
 ```
+
+**In a one-off container**, using the same image, environment file and mounted backup storage as the scheduled service:
+
+```bash
+docker compose --env-file ./github-to-nas-backup.env run --rm \
+  -e BACKUP_ROOT=/data \
+  --entrypoint sh \
+  github-to-nas-backup /verify-backups.sh
+```
+
+The service name is `github-to-nas-backup` (not the old `github-backup`). `docker compose run` starts a **separate container**: it does not pause or synchronize with the scheduled backup. Prefer verifying **outside the backup window** and check that `<BACKUP_HOST_PATH>/status/running` does not exist. If uninterrupted consistency is required, stop the scheduled service while idle before starting the one-off verification and restart it afterwards. A pre-check alone is subject to a race with the next scheduled run; an in-progress backup may cause transient verification errors.
 
 A stronger reconstruction test is documented in [docs/RESTORE-TEST.md](docs/RESTORE-TEST.md).
 

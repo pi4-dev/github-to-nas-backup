@@ -52,7 +52,7 @@ echo "All repository and wiki mirrors passed git fsck --full --no-dangling."
 echo
 echo "Validating JSON metadata and Git LFS object hashes."
 
-python - "$BACKUP_ROOT" "$VERIFY_LFS" <<'PY'
+python3 - "$BACKUP_ROOT" "$VERIFY_LFS" <<'PY'
 import hashlib
 import json
 import os

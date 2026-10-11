@@ -147,7 +147,7 @@ send_keepalive() {
 
     # The URL is passed as an argument and never logged (it may hold a secret).
     # The image ships Python, so no extra curl/wget dependency is needed.
-    if python -c '
+    if python3 -c '
 import sys
 import urllib.request
 

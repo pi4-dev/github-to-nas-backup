@@ -42,7 +42,12 @@ jobs:
           printf '{}\n' > "$tmp/backup/repositories/example/metadata.json"
           # A dangling (not corrupt) blob should not pollute verification logs.
           printf 'orphan\n' | git --git-dir="$tmp/backup/repositories/example/repository" hash-object -w --stdin > /dev/null
-          output="$(BACKUP_ROOT="$tmp/backup" VERIFY_LFS=false sh ./verify-backups.sh 2>&1)"
+          # Simulate a host where 'python' is unavailable but 'python3' exists.
+          mkdir -p "$tmp/no-python-bin"
+          printf '#!/bin/sh\necho "Unexpected python alias used" >&2\nexit 91\n' > "$tmp/no-python-bin/python"
+          chmod +x "$tmp/no-python-bin/python"
+          output="$(PATH="$tmp/no-python-bin:$PATH" BACKUP_ROOT="$tmp/backup" VERIFY_LFS=false sh ./verify-backups.sh 2>&1)"
+          printf '%s\n' "$output" | grep -Fq "Backup verification completed successfully."
           printf '%s\n' "$output" | grep -Fq "/wiki ==="
           if printf '%s\n' "$output" | grep -Fq 'dangling blob'; then
             echo 'Unexpected dangling-object warning in healthy mirror' >&2
